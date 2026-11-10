@@ -2,7 +2,10 @@
 
 package com.shuaixin.wallpaper
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.os.VibrationEffect
+import android.os.Vibrator
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -287,7 +290,7 @@ private fun WallpaperCard(
 
         // 碎片层：只在有「上一张」时出现
         if (previousBitmap != null) {
-            DissolveOverlay(
+            ParticleDissolve(
                 bitmap = previousBitmap,
                 trigger = transitionId,
                 modifier = Modifier.fillMaxSize(),
@@ -398,6 +401,7 @@ private fun ActionCircle(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     val container = if (primary) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -424,7 +428,10 @@ private fun ActionCircle(
                 enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = androidx.compose.material3.ripple(),
-                onClick = onClick,
+                onClick = {
+                    context.tapFeedback()
+                    onClick()
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -434,6 +441,18 @@ private fun ActionCircle(
             tint = content.copy(alpha = alpha),
             modifier = Modifier.size(iconSize),
         )
+    }
+}
+
+/**
+ * 轻点反馈。
+ * 用系统预定义的「点击」波形（EFFECT_CLICK），比自己写振动毫秒数更贴合系统手感，
+ * 也能跟着用户的触感设置走。
+ */
+private fun Context.tapFeedback() {
+    runCatching {
+        val vibrator = getSystemService(Vibrator::class.java) ?: return@runCatching
+        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
     }
 }
 
@@ -477,6 +496,7 @@ private fun SheetItem(
     subtitle: String,
     onClick: () -> Unit,
 ) {
+    val context = LocalContext.current
     ListItem(
         headlineContent = {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Serif)
@@ -491,6 +511,9 @@ private fun SheetItem(
         leadingContent = {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.clickable {
+            context.tapFeedback()
+            onClick()
+        },
     )
 }

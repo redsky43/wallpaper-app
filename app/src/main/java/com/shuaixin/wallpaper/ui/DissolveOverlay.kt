@@ -12,128 +12,124 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-private class Shard(
+/** 一颗「沙粒」：位置、颜色、大小、出发时间、飞散方向 */
+private class Grain(
     val nx: Float,
     val ny: Float,
-    val nw: Float,
-    val nh: Float,
+    val color: Color,
+    val scale: Float,
     val delay: Float,
     val dx: Float,
     val dy: Float,
 )
 
+// 把画面打成多少格 —— 这两个数字决定「沙粒」的粗细
+private const val GRID_COLS = 36
+private const val GRID_ROWS = 60
+
 /**
  * 粒子溶解（particle dissolve）。
  *
- * 这是网页和影视后期里做图片过渡的通用办法，不是 Material 规范里的东西：
- * 把画面切成网格，每一小块**带着自己的那部分画面**朝外飞散、缩小、淡出，
- * 底下的新图就一点点露出来。
+ * 和「切碎块」不一样的地方：这里把画面采样成 36×60 = 2160 个**圆点**，
+ * 每个点的颜色就是它所在位置那一小块画面的真实颜色。
  *
- * 关键点：进度为 0 时，所有碎片恰好拼回一张完整的旧图，所以看不到接缝；
- * 之后每块按各自的延迟出发，看起来就是画面在崩解。
+ * 静止时这些点互相重叠、刚好铺满整张图，看起来还是一张完整的画；
+ * 一动起来，整幅画面就像被吹散成彩色的沙，露出后面的新图。
  *
- * 每块的飞行方向朝画面中心向外，力度随机，越靠外的越快离场。
+ * 每颗沙粒都有：
+ *   - 自己的颜色（从原图采样，不是随机色）
+ *   - 自己的大小（0.62~1.17 倍，避免看起来是机械的网格）
+ *   - 自己的出发延迟（0~0.46 秒，所以是一层层剥离而不是整块掉下来）
+ *   - 自己的飞散方向（朝画面外侧，力度随机）
  */
 @Composable
-fun DissolveOverlay(
+fun ParticleDissolve(
     bitmap: Bitmap,
     trigger: Int,
     modifier: Modifier = Modifier,
 ) {
-    val image = remember(bitmap) { bitmap.asImageBitmap() }
-    var shards by remember { mutableStateOf<List<Shard>>(emptyList()) }
+    var grains by remember { mutableStateOf<List<Grain>>(emptyList()) }
     val progress = remember { Animatable(1f) }
 
     LaunchedEffect(trigger, bitmap) {
         if (trigger <= 1) return@LaunchedEffect
 
-        val cols = 12
-        val rows = 18
-        val random = Random(trigger * 7331L)
-        val list = ArrayList<Shard>(cols * rows)
+        // 采样在后台线程做，别卡住动画
+        val list = withContext(Dispatchers.Default) {
+            val small = Bitmap.createScaledBitmap(bitmap, GRID_COLS, GRID_ROWS, true)
+            val pixels = IntArray(GRID_COLS * GRID_ROWS)
+            small.getPixels(pixels, 0, GRID_COLS, 0, 0, GRID_COLS, GRID_ROWS)
+            if (small !== bitmap) small.recycle()
 
-        for (row in 0 until rows) {
-            for (col in 0 until cols) {
-                // 相对画面中心的方向，决定这一块往哪飞
-                val cx = (col + 0.5f) / cols - 0.5f
-                val cy = (row + 0.5f) / rows - 0.5f
-                val length = sqrt(cx * cx + cy * cy).coerceAtLeast(0.001f)
-                val force = 0.30f + random.nextFloat() * 0.55f
+            val random = Random(trigger * 7331L)
+            val out = ArrayList<Grain>(GRID_COLS * GRID_ROWS)
 
-                list.add(
-                    Shard(
-                        nx = col.toFloat() / cols,
-                        ny = row.toFloat() / rows,
-                        nw = 1f / cols,
-                        nh = 1f / rows,
-                        delay = random.nextFloat() * 0.42f,
-                        dx = cx / length * force,
-                        dy = cy / length * force,
-                    ),
-                )
+            for (row in 0 until GRID_ROWS) {
+                for (col in 0 until GRID_COLS) {
+                    val pixel = pixels[row * GRID_COLS + col]
+                    if (((pixel ushr 24) and 0xFF) < 16) continue
+
+                    val cx = (col + 0.5f) / GRID_COLS - 0.5f
+                    val cy = (row + 0.5f) / GRID_ROWS - 0.5f
+                    val length = sqrt(cx * cx + cy * cy).coerceAtLeast(0.001f)
+                    val force = 0.20f + random.nextFloat() * 0.60f
+
+                    out.add(
+                        Grain(
+                            nx = (col + 0.5f) / GRID_COLS,
+                            ny = (row + 0.5f) / GRID_ROWS,
+                            color = Color(pixel),
+                            scale = 0.62f + random.nextFloat() * 0.55f,
+                            delay = random.nextFloat() * 0.46f,
+                            dx = cx / length * force,
+                            dy = cy / length * force,
+                        ),
+                    )
+                }
             }
+            out
         }
 
-        shards = list
+        grains = list
         progress.snapTo(0f)
         progress.animateTo(
             targetValue = 1f,
-            animationSpec = tween(durationMillis = 820, easing = LinearEasing),
+            animationSpec = tween(durationMillis = 920, easing = LinearEasing),
         )
-        shards = emptyList()
+        grains = emptyList()
     }
 
     Canvas(modifier) {
         val p = progress.value
-        if (p >= 1f || shards.isEmpty()) return@Canvas
+        if (p >= 1f || grains.isEmpty()) return@Canvas
 
-        // 图片按 Crop 铺满，先算出真正可见的那一块区域
-        val cover = maxOf(size.width / image.width, size.height / image.height)
-        val visibleWidth = size.width / cover
-        val visibleHeight = size.height / cover
-        val srcLeft = (image.width - visibleWidth) / 2f
-        val srcTop = (image.height - visibleHeight) / 2f
+        val cellWidth = size.width / GRID_COLS
+        val cellHeight = size.height / GRID_ROWS
+        // 略大于格子，静止时才不会露出缝隙
+        val baseRadius = maxOf(cellWidth, cellHeight) * 0.64f
 
-        shards.forEach { shard ->
-            val t = ((p - shard.delay) / (1f - shard.delay)).coerceIn(0f, 1f)
+        grains.forEach { grain ->
+            val t = ((p - grain.delay) / (1f - grain.delay)).coerceIn(0f, 1f)
             if (t <= 0f) return@forEach
 
-            val drift = t * t                       // 先慢后快，像被卷走
-            val fade = (1f - t) * (1f - t)          // 尾巴快速消失，不留残影
-            val shrink = 1f - 0.45f * t
+            val drift = t * t              // 先慢后快
+            val fade = (1f - t) * (1f - t) // 尾巴干脆，不留雾
+            val shrink = 1f - 0.55f * t
 
-            val baseW = shard.nw * size.width
-            val baseH = shard.nh * size.height
-            val drawW = baseW * shrink
-            val drawH = baseH * shrink
+            val x = (grain.nx + grain.dx * drift) * size.width
+            val y = (grain.ny + grain.dy * drift) * size.height
 
-            val drawX = shard.nx * size.width + shard.dx * size.width * drift - (drawW - baseW) / 2f
-            val drawY = shard.ny * size.height + shard.dy * size.height * drift - (drawH - baseH) / 2f
-
-            drawImage(
-                image = image,
-                srcOffset = IntOffset(
-                    (srcLeft + shard.nx * visibleWidth).toInt(),
-                    (srcTop + shard.ny * visibleHeight).toInt(),
-                ),
-                srcSize = IntSize(
-                    (shard.nw * visibleWidth).toInt().coerceAtLeast(1),
-                    (shard.nh * visibleHeight).toInt().coerceAtLeast(1),
-                ),
-                dstOffset = IntOffset(drawX.toInt(), drawY.toInt()),
-                dstSize = IntSize(
-                    drawW.toInt().coerceAtLeast(1),
-                    drawH.toInt().coerceAtLeast(1),
-                ),
-                alpha = fade,
-                filterQuality = FilterQuality.Low,
+            drawCircle(
+                color = grain.color.copy(alpha = fade),
+                radius = baseRadius * grain.scale * shrink,
+                center = Offset(x, y),
             )
         }
     }
