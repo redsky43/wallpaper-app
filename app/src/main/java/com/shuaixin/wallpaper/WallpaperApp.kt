@@ -240,7 +240,6 @@ private fun WallpaperCard(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(corner)
-    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -255,36 +254,16 @@ private fun WallpaperCard(
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .background(seed.copy(alpha = 0.55f)),
     ) {
-        if (item != null) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(item.imageUrl)
-                    .size(1200)
-                    .crossfade(150)
-                    .build(),
-                contentDescription = item.artistName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 2.5.dp,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                },
-                error = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "这张没加载出来",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            )
-        } else {
+        // 划像转场：新图从下往上顶开旧图，交界线是弧形
+        WipeLayers(
+            currentUrl = item?.imageUrl,
+            previousBitmap = previousBitmap,
+            trigger = transitionId,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // 首次打开、还没有任何图时显示进度
+        if (item == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary,
@@ -292,15 +271,6 @@ private fun WallpaperCard(
                     modifier = Modifier.size(32.dp),
                 )
             }
-        }
-
-        // 碎片层：只在有「上一张」时出现
-        if (previousBitmap != null) {
-            ParticleDissolve(
-                bitmap = previousBitmap,
-                trigger = transitionId,
-                modifier = Modifier.fillMaxSize(),
-            )
         }
     }
 }
