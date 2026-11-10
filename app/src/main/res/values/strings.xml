@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">壁纸</string>
+    <string name="action_set_wallpaper">设为壁纸</string>
+    <string name="action_next">换一张</string>
+    <string name="action_save">保存</string>
+    <string name="sheet_title">设置壁纸</string>
+    <string name="wallpaper_home">仅主屏幕</string>
+    <string name="wallpaper_lock">仅锁屏</string>
+    <string name="wallpaper_both">主屏幕和锁屏</string>
+    <string name="toast_saved">已保存到相册</string>
+    <string name="toast_wallpaper_set">壁纸已设置</string>
+    <string name="toast_failed">操作失败，请重试</string>
+</resources>
