@@ -24,14 +24,13 @@ import kotlinx.coroutines.launch
 
 data class UiState(
     val current: WallpaperItem? = null,
+    /** 上一张的 URL，划像时垫在下面用 —— 用 URL 而不是位图，画质才和原图一致 */
+    val previousUrl: String? = null,
     val seed: Color = Color(0xFF6E6A72),
     val loading: Boolean = true,
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null,
-    /** 上一张图，用来做粒子溶解 */
-    val previousBitmap: Bitmap? = null,
-    /** 每换一张图 +1 */
     val transitionId: Int = 0,
 )
 
@@ -44,12 +43,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
 
     private val queue = ArrayDeque<WallpaperItem>()
     private val seedCache = mutableMapOf<String, Color>()
-
-    /**
-     * 每张图保留一份中等尺寸位图：一图两用，既用来算主色，也用来做溶解的碎片。
-     * 分辨率不用太高，反正是要撕碎的东西。
-     */
-    private val bitmapCache = mutableMapOf<String, Bitmap>()
 
     private var filling = false
     private var seedJob: Job? = null
@@ -94,10 +87,10 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
             _state.update {
                 it.copy(
                     current = nextItem,
+                    previousUrl = oldItem?.imageUrl,
                     seed = cached ?: it.seed,
                     loading = false,
                     error = null,
-                    previousBitmap = bitmapCache[oldItem?.imageUrl],
                     transitionId = it.transitionId + 1,
                 )
             }
@@ -114,9 +107,9 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update {
                     it.copy(
                         current = item,
+                        previousUrl = oldItem?.imageUrl,
                         seed = seed ?: it.seed,
                         loading = false,
-                        previousBitmap = bitmapCache[oldItem?.imageUrl],
                         transitionId = it.transitionId + 1,
                     )
                 }
@@ -135,6 +128,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                 while (queue.size < TARGET_QUEUE) {
                     val item = runCatching { repository.random() }.getOrNull() ?: break
                     if (queue.any { it.imageUrl == item.imageUrl }) continue
+                    if (item.imageUrl == _state.value.current?.imageUrl) continue
                     queue.addLast(item)
                     ensureSeed(item)
                     preloadImage(item)
@@ -145,11 +139,13 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 把图下到缓存里，尺寸必须和卡片显示时一致，
+     * 否则内存缓存命不中，换图那一瞬间还得重新解码。
+     */
     private fun preloadImage(item: WallpaperItem) {
         viewModelScope.launch {
             runCatching {
-                // 尺寸要和卡片显示时一致，否则内存缓存命不中，
-                // 换图那一刻还得重新解码，就会出现「空一帧」的暗闪
                 val request = ImageRequest.Builder(app)
                     .data(item.imageUrl)
                     .size(1200)
@@ -159,12 +155,12 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 算主色，顺便把位图留在内存里给溶解用 */
+    /** 只为了取主色，用小图就够了，取完立刻回收 */
     private suspend fun ensureSeed(item: WallpaperItem): Color? {
         seedCache[item.imageUrl]?.let { return it }
-        val bitmap = bitmapCache[item.imageUrl] ?: loadRaster(item.imageUrl, 640) ?: return null
-        bitmapCache[item.imageUrl] = bitmap
+        val bitmap = loadRaster(item.imageUrl, 256) ?: return null
         val seed = extractSeedColor(bitmap)
+        bitmap.recycle()
         seedCache[item.imageUrl] = seed
         return seed
     }
@@ -224,7 +220,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(message = null) }
     }
 
-    /** 解码成指定宽度的位图，软件位图才能直接拿去 Canvas 画 */
     private suspend fun loadRaster(url: String, width: Int): Bitmap? = runCatching {
         val request = ImageRequest.Builder(app)
             .data(url)

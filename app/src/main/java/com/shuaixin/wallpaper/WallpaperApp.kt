@@ -3,7 +3,6 @@
 package com.shuaixin.wallpaper
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.compose.animation.animateColorAsState
@@ -84,17 +83,21 @@ fun WallpaperApp(vm: WallpaperViewModel = viewModel()) {
     // 种子色平滑过渡：换图时整个界面的颜色一起缓缓流动
     val animatedSeed by animateColorAsState(
         targetValue = state.seed,
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
         label = "seed",
     )
 
     WallpaperTheme(seed = animatedSeed, dark = dark) {
-        WallpaperScreen(state = state, vm = vm)
+        WallpaperScreen(state = state, vm = vm, animatedSeed = animatedSeed)
     }
 }
 
 @Composable
-private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
+private fun WallpaperScreen(
+    state: UiState,
+    vm: WallpaperViewModel,
+    animatedSeed: Color,
+) {
     var sheetVisible by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val cardCorner = rememberDeviceCorner()
@@ -107,7 +110,7 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
 
     Box(Modifier.fillMaxSize()) {
         // 第一层：整张图放大 + 重度模糊，取它的颜色当环境底色
-        Backdrop(url = state.current?.imageUrl, seed = state.seed)
+        Backdrop(url = state.current?.imageUrl, seed = animatedSeed)
 
         // 第二层：所有内容
         Column(
@@ -128,10 +131,10 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
 
             WallpaperCard(
                 item = state.current,
-                previousBitmap = state.previousBitmap,
+                previousUrl = state.previousUrl,
                 transitionId = state.transitionId,
                 corner = cardCorner,
-                seed = state.seed,
+                seed = animatedSeed,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -189,7 +192,7 @@ private fun Backdrop(url: String?, seed: Color) {
                 model = ImageRequest.Builder(context)
                     .data(url)
                     .size(200)
-                    .crossfade(500)
+                    .crossfade(900)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
@@ -233,7 +236,7 @@ private fun Backdrop(url: String?, seed: Color) {
 @Composable
 private fun WallpaperCard(
     item: WallpaperItem?,
-    previousBitmap: Bitmap?,
+    previousUrl: String?,
     transitionId: Int,
     corner: Dp,
     seed: Color,
@@ -257,7 +260,7 @@ private fun WallpaperCard(
         // 划像转场：新图从下往上顶开旧图，交界线是弧形
         WipeLayers(
             currentUrl = item?.imageUrl,
-            previousBitmap = previousBitmap,
+            previousUrl = previousUrl,
             trigger = transitionId,
             modifier = Modifier.fillMaxSize(),
         )

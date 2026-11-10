@@ -1,10 +1,8 @@
 package com.shuaixin.wallpaper
 
-import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -12,46 +10,36 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 
 /**
  * 划像（wipe）转场。
  *
- * 这是剪辑里的老手法：不是两张图互相淡，而是新画面像一块布从下往上推上来，
- * 把旧画面顶出去。交界线做成中间高、两边低的弧，推进时带一点波浪感。
+ * 新画面像一块布从下往上推，把旧画面顶出去，交界线是中间高两边低的弧。
  *
- * 结构是两层叠放：
- *   底层 —— 上一张图（铺满）
- *   顶层 —— 当前图，按弧形路径裁剪，随进度从底部往上「长」出来
+ * 两层都用原图 URL，不用缩略图 —— 这样交界线扫过时，
+ * 上下两半的画质是一致的，不会出现「旧图突然变糊」。
  *
- * 因为旧图一直在下面垫着，所以任何一帧都不会露出空白或者深色底 ——
- * 也就不会再有之前那种「闪一下变暗」。
+ * 旧图始终铺满在底层，任何一帧都不会露出空白。
  */
 @Composable
 fun WipeLayers(
     currentUrl: String?,
-    previousBitmap: Bitmap?,
+    previousUrl: String?,
     trigger: Int,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val previous = remember(previousBitmap) { previousBitmap?.asImageBitmap() }
     val progress = remember { Animatable(1f) }
 
-    LaunchedEffect(trigger, previousBitmap) {
+    LaunchedEffect(trigger, previousUrl) {
         // 第一次打开没有「上一张」，直接完整显示
-        if (previousBitmap == null) {
+        if (previousUrl == null) {
             progress.snapTo(1f)
             return@LaunchedEffect
         }
@@ -66,11 +54,20 @@ fun WipeLayers(
     }
 
     Box(modifier) {
-        // 底层：上一张
-        if (previous != null) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawCropped(previous)
-            }
+        // 底层：上一张，和顶层同样的尺寸参数，保证画质一致
+        if (previousUrl != null) {
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(previousUrl)
+                    .size(1200)
+                    .crossfade(false)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {},
+                error = {},
+            )
         }
 
         // 顶层：当前这张，按弧形路径裁剪
@@ -120,21 +117,4 @@ fun WipeLayers(
             )
         }
     }
-}
-
-/** 按 Crop 方式把图铺满整个区域，和 ContentScale.Crop 表现一致 */
-private fun DrawScope.drawCropped(image: ImageBitmap) {
-    val scale = maxOf(size.width / image.width, size.height / image.height)
-    val width = image.width * scale
-    val height = image.height * scale
-
-    drawImage(
-        image = image,
-        dstOffset = IntOffset(
-            ((size.width - width) / 2f).toInt(),
-            ((size.height - height) / 2f).toInt(),
-        ),
-        dstSize = IntSize(width.toInt(), height.toInt()),
-        filterQuality = FilterQuality.Low,
-    )
 }
