@@ -157,14 +157,6 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
             Spacer(Modifier.height(24.dp))
         }
 
-        // 换图时的粒子，从图片区域炸开
-        ParticleOverlay(
-            trigger = state.transitionId,
-            bounds = cardBounds,
-            palette = palette,
-            modifier = Modifier.fillMaxSize(),
-        )
-
         SnackbarHost(
             hostState = snackbar,
             modifier = Modifier
