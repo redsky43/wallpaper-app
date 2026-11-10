@@ -2,9 +2,20 @@
 
 package com.shuaixin.wallpaper
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,13 +65,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +79,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.shuaixin.wallpaper.data.WallpaperItem
 import com.shuaixin.wallpaper.ui.theme.WallpaperTheme
 import com.shuaixin.wallpaper.util.WallpaperTarget
 
@@ -91,23 +100,59 @@ fun WallpaperApp(vm: WallpaperViewModel = viewModel()) {
     }
 }
 
+/**
+ * 图片替换的转场 —— Material Motion 的 Shared Axis Z（纵深轴）。
+ *
+ * 谷歌把内容转场分成四类：Container Transform、Shared Axis、Fade Through、Fade。
+ * 「同一块区域里内容被整体换掉」对应的是 Shared Axis，Z 轴版本的处理是：
+ *   旧内容向观察者靠近、放大、淡出；新内容从稍远处推近、放大到原尺寸、淡入。
+ * 两者同时进行但错开时间，产生一种「往屏幕深处推进」的层次感。
+ *
+ * 时间参数遵循 Material 规范：退场快、入场慢，入场略微延后。
+ * 全部使用 Compose 原生动画 API，没有引入任何第三方库。
+ */
+private fun AnimatedContentTransitionScope<String?>.sharedAxisZ(): ContentTransform {
+    // 第一次从空状态载入时不需要转场，直接出现
+    if (initialState == null) {
+        return EnterTransition.None togetherWith ExitTransition.None
+    }
+
+    return (
+        fadeIn(
+            animationSpec = tween(
+                durationMillis = 380,
+                delayMillis = 70,
+                easing = FastOutSlowInEasing,
+            ),
+        ) + scaleIn(
+            initialScale = 0.92f,
+            animationSpec = tween(
+                durationMillis = 440,
+                delayMillis = 70,
+                easing = FastOutSlowInEasing,
+            ),
+        )
+        ) togetherWith (
+        fadeOut(
+            animationSpec = tween(
+                durationMillis = 240,
+                easing = FastOutLinearInEasing,
+            ),
+        ) + scaleOut(
+            targetScale = 1.10f,
+            animationSpec = tween(
+                durationMillis = 280,
+                easing = FastOutLinearInEasing,
+            ),
+        )
+        )
+}
+
 @Composable
 private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
     var sheetVisible by remember { mutableStateOf(false) }
-    var cardBounds by remember { mutableStateOf(Rect.Zero) }
     val snackbar = remember { SnackbarHostState() }
     val cardCorner = rememberDeviceCorner()
-    val scheme = MaterialTheme.colorScheme
-
-    val palette = remember(scheme.primary, scheme.tertiary, scheme.secondary) {
-        listOf(
-            scheme.primary,
-            scheme.tertiary,
-            scheme.secondary,
-            scheme.primaryContainer,
-            Color.White,
-        )
-    }
 
     LaunchedEffect(state.message) {
         val msg = state.message ?: return@LaunchedEffect
@@ -141,8 +186,7 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
                 corner = cardCorner,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .onGloballyPositioned { cardBounds = it.boundsInRoot() },
+                    .weight(1f),
             )
 
             Spacer(Modifier.height(30.dp))
@@ -230,7 +274,7 @@ private fun Backdrop(url: String?, seed: Color) {
 /** 中间的图片卡片：大圆角 + 向下投射的阴影 */
 @Composable
 private fun WallpaperCard(
-    item: com.shuaixin.wallpaper.data.WallpaperItem?,
+    item: WallpaperItem?,
     corner: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -249,40 +293,48 @@ private fun WallpaperCard(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        if (item != null) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(item.imageUrl)
-                    .crossfade(620)
-                    .build(),
-                contentDescription = item.artistName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 2.5.dp,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                },
-                error = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "这张没加载出来",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            )
-        } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.5.dp,
-                    modifier = Modifier.size(32.dp),
+        // 转场交给 AnimatedContent，所以 Coil 自身不做交叉淡入，避免两套动画打架
+        AnimatedContent(
+            targetState = item?.imageUrl,
+            transitionSpec = { sharedAxisZ() },
+            label = "wallpaper",
+            modifier = Modifier.fillMaxSize(),
+        ) { url ->
+            if (url == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 2.5.dp,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            } else {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(url)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = item?.artistName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier.size(32.dp),
+                            )
+                        }
+                    },
+                    error = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "这张没加载出来",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
                 )
             }
         }
