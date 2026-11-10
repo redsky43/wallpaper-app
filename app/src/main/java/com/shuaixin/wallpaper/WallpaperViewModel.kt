@@ -29,7 +29,9 @@ data class UiState(
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null,
-    /** 每换一张图 +1，界面靠它触发粒子动效 */
+    /** 上一张图，用来做粒子溶解 */
+    val previousBitmap: Bitmap? = null,
+    /** 每换一张图 +1 */
     val transitionId: Int = 0,
 )
 
@@ -40,11 +42,14 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    /** 后台已经准备好的下几张图 */
     private val queue = ArrayDeque<WallpaperItem>()
-
-    /** 提前算好的主色，换图时直接跳过去，不用再算一遍 */
     private val seedCache = mutableMapOf<String, Color>()
+
+    /**
+     * 每张图保留一份中等尺寸位图：一图两用，既用来算主色，也用来做溶解的碎片。
+     * 分辨率不用太高，反正是要撕碎的东西。
+     */
+    private val bitmapCache = mutableMapOf<String, Bitmap>()
 
     private var filling = false
     private var seedJob: Job? = null
@@ -78,14 +83,12 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * 换一张。
-     * 优先从后台队列里拿——图和颜色都已经准备好，点下去就是瞬间的。
-     */
     fun next() {
         seedJob?.cancel()
 
+        val oldItem = _state.value.current
         val nextItem = queue.removeFirstOrNull()
+
         if (nextItem != null) {
             val cached = seedCache[nextItem.imageUrl]
             _state.update {
@@ -94,12 +97,12 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                     seed = cached ?: it.seed,
                     loading = false,
                     error = null,
+                    previousBitmap = bitmapCache[oldItem?.imageUrl],
                     transitionId = it.transitionId + 1,
                 )
             }
             if (cached == null) refreshSeed(nextItem)
         } else {
-            // 队列空（网络断过），现场抓
             viewModelScope.launch {
                 _state.update { it.copy(loading = true, error = null) }
                 val item = runCatching { repository.random() }.getOrNull()
@@ -113,6 +116,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                         current = item,
                         seed = seed ?: it.seed,
                         loading = false,
+                        previousBitmap = bitmapCache[oldItem?.imageUrl],
                         transitionId = it.transitionId + 1,
                     )
                 }
@@ -123,7 +127,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         refill()
     }
 
-    /** 把后台队列补满到 3 张，同时预加载图片和解码主色 */
     private fun refill() {
         if (filling) return
         filling = true
@@ -142,7 +145,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 只把图片下到磁盘缓存，界面切过去时不用等网络 */
     private fun preloadImage(item: WallpaperItem) {
         viewModelScope.launch {
             runCatching {
@@ -155,11 +157,12 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 算主色，顺便把位图留在内存里给溶解用 */
     private suspend fun ensureSeed(item: WallpaperItem): Color? {
         seedCache[item.imageUrl]?.let { return it }
-        val bitmap = loadSmallBitmap(item.imageUrl) ?: return null
+        val bitmap = bitmapCache[item.imageUrl] ?: loadRaster(item.imageUrl, 640) ?: return null
+        bitmapCache[item.imageUrl] = bitmap
         val seed = extractSeedColor(bitmap)
-        bitmap.recycle()
         seedCache[item.imageUrl] = seed
         return seed
     }
@@ -173,7 +176,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 设为壁纸 */
     fun applyWallpaper(target: WallpaperTarget) {
         val url = _state.value.current?.imageUrl ?: return
         viewModelScope.launch {
@@ -195,7 +197,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 保存到相册 */
     fun save() {
         val item = _state.value.current ?: return
         viewModelScope.launch {
@@ -221,11 +222,12 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(message = null) }
     }
 
-    private suspend fun loadSmallBitmap(url: String): Bitmap? = runCatching {
+    /** 解码成指定宽度的位图，软件位图才能直接拿去 Canvas 画 */
+    private suspend fun loadRaster(url: String, width: Int): Bitmap? = runCatching {
         val request = ImageRequest.Builder(app)
             .data(url)
             .allowHardware(false)
-            .size(96)
+            .size(width)
             .build()
         val result = app.imageLoader.execute(request)
         (result as? SuccessResult)?.drawable?.toBitmap()
