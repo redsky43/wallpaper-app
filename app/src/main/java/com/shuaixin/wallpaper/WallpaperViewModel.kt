@@ -148,9 +148,11 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
     private fun preloadImage(item: WallpaperItem) {
         viewModelScope.launch {
             runCatching {
+                // 尺寸要和卡片显示时一致，否则内存缓存命不中，
+                // 换图那一刻还得重新解码，就会出现「空一帧」的暗闪
                 val request = ImageRequest.Builder(app)
                     .data(item.imageUrl)
-                    .size(1100)
+                    .size(1200)
                     .build()
                 app.imageLoader.enqueue(request)
             }

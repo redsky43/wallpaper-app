@@ -131,6 +131,7 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
                 previousBitmap = state.previousBitmap,
                 transitionId = state.transitionId,
                 corner = cardCorner,
+                seed = state.seed,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -180,7 +181,9 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
 private fun Backdrop(url: String?, seed: Color) {
     val context = LocalContext.current
 
-    Box(Modifier.fillMaxSize()) {
+    // 底色直接铺这张图的主色：即使图还没加载完，露出来的也是「这张图的颜色」，
+    // 而不是黑底 —— 这样换图过程中不会出现整屏暗一下的感觉
+    Box(Modifier.fillMaxSize().background(seed)) {
         if (url != null) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
@@ -233,6 +236,7 @@ private fun WallpaperCard(
     previousBitmap: Bitmap?,
     transitionId: Int,
     corner: Dp,
+    seed: Color,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(corner)
@@ -248,13 +252,15 @@ private fun WallpaperCard(
                 spotColor = Color.Black.copy(alpha = 0.60f),
             )
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .background(seed.copy(alpha = 0.55f)),
     ) {
         if (item != null) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(item.imageUrl)
-                    .crossfade(280)
+                    .size(1200)
+                    .crossfade(150)
                     .build(),
                 contentDescription = item.artistName,
                 contentScale = ContentScale.Crop,
