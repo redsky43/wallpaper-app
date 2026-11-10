@@ -54,13 +54,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -76,7 +79,7 @@ fun WallpaperApp(vm: WallpaperViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val dark = isSystemInDarkTheme()
 
-    // 种子色平滑过渡：换图时整个界面的颜色一起缓缓流动，而不是硬切
+    // 种子色平滑过渡：换图时整个界面的颜色一起缓缓流动
     val animatedSeed by animateColorAsState(
         targetValue = state.seed,
         animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
@@ -91,8 +94,20 @@ fun WallpaperApp(vm: WallpaperViewModel = viewModel()) {
 @Composable
 private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
     var sheetVisible by remember { mutableStateOf(false) }
+    var cardBounds by remember { mutableStateOf(Rect.Zero) }
     val snackbar = remember { SnackbarHostState() }
     val cardCorner = rememberDeviceCorner()
+    val scheme = MaterialTheme.colorScheme
+
+    val palette = remember(scheme.primary, scheme.tertiary, scheme.secondary) {
+        listOf(
+            scheme.primary,
+            scheme.tertiary,
+            scheme.secondary,
+            scheme.primaryContainer,
+            Color.White,
+        )
+    }
 
     LaunchedEffect(state.message) {
         val msg = state.message ?: return@LaunchedEffect
@@ -111,26 +126,26 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
                 .windowInsetsPadding(WindowInsets.systemBars)
                 .padding(horizontal = 22.dp),
         ) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
 
-            ArtistBlock(
+            ArtistRow(
                 name = state.current?.artistName,
-                onClick = { },
-                modifier = Modifier.fillMaxWidth(),
+                title = state.current?.title,
+                source = state.current?.source,
             )
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
             WallpaperCard(
                 item = state.current,
                 corner = cardCorner,
-                loading = state.loading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .onGloballyPositioned { cardBounds = it.boundsInRoot() },
             )
 
-            Spacer(Modifier.height(34.dp))
+            Spacer(Modifier.height(30.dp))
 
             ActionRow(
                 enabled = state.current != null && !state.busy,
@@ -139,8 +154,16 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
                 onSave = vm::save,
             )
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(24.dp))
         }
+
+        // 换图时的粒子，从图片区域炸开
+        ParticleOverlay(
+            trigger = state.transitionId,
+            bounds = cardBounds,
+            palette = palette,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         SnackbarHost(
             hostState = snackbar,
@@ -169,7 +192,7 @@ private fun WallpaperScreen(state: UiState, vm: WallpaperViewModel) {
     }
 }
 
-/** 背景层：模糊的图 + 种子色染色 + 一层由浅到深的遮挡，保证前景文字可读 */
+/** 背景层：模糊的图 + 种子色染色 + 一层由浅到深的遮挡 */
 @Composable
 private fun Backdrop(url: String?, seed: Color) {
     val context = LocalContext.current
@@ -179,7 +202,7 @@ private fun Backdrop(url: String?, seed: Color) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(url)
-                    .size(180)
+                    .size(200)
                     .crossfade(500)
                     .build(),
                 contentDescription = null,
@@ -192,20 +215,18 @@ private fun Backdrop(url: String?, seed: Color) {
             )
         }
 
-        // 用图片主色染一遍，让背景带着图里的情绪
         Box(
             Modifier
                 .fillMaxSize()
                 .background(seed.copy(alpha = 0.42f)),
         )
 
-        // 上浅下深，保证底部按钮和文字始终清晰
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to Color.Black.copy(alpha = 0.10f),
+                        0.0f to Color.Black.copy(alpha = 0.12f),
                         0.55f to Color.Black.copy(alpha = 0.30f),
                         1.0f to Color.Black.copy(alpha = 0.62f),
                     ),
@@ -214,12 +235,11 @@ private fun Backdrop(url: String?, seed: Color) {
     }
 }
 
-/** 中间的图片卡片：大圆角 + 向下投射的阴影，像浮在颜色之上 */
+/** 中间的图片卡片：大圆角 + 向下投射的阴影 */
 @Composable
 private fun WallpaperCard(
     item: com.shuaixin.wallpaper.data.WallpaperItem?,
     corner: Dp,
-    loading: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(corner)
@@ -241,7 +261,7 @@ private fun WallpaperCard(
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(item.imageUrl)
-                    .crossfade(650)
+                    .crossfade(620)
                     .build(),
                 contentDescription = item.artistName,
                 contentScale = ContentScale.Crop,
@@ -277,68 +297,59 @@ private fun WallpaperCard(
     }
 }
 
-/** 右上角：画师头像 + 竖排的名字 */
+/** 左上角：画师头像 + 横排信息，全部使用衬线字体 */
 @Composable
-private fun ArtistBlock(
+private fun ArtistRow(
     name: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    title: String?,
+    source: String?,
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.End,
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(46.dp)
-                .shadow(8.dp, CircleShape, clip = false)
+                .size(44.dp)
+                .shadow(10.dp, CircleShape, clip = false)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f))
-                .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                .clickable(
-                    enabled = name != null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick,
-                ),
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.60f))
+                .border(1.dp, Color.White.copy(alpha = 0.24f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = name?.take(1) ?: "·",
+                text = name?.trim()?.take(1)?.ifBlank { null } ?: "・",
                 style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Serif,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.width(13.dp))
 
-        if (!name.isNullOrBlank()) {
-            VerticalName(name)
-        }
-    }
-}
-
-/** 竖排文字：一个字一行，日文/中文天然适合这样排 */
-@Composable
-private fun VerticalName(name: String) {
-    val chars = name.trim().take(7).toList()
-    val truncated = name.trim().length > 7
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        chars.forEach { ch ->
+        Column(Modifier.weight(1f)) {
             Text(
-                text = ch.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.88f),
+                text = name ?: "佚名",
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-        }
-        if (truncated) {
-            Text(
-                text = "…",
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.6f),
-            )
+
+            val sub = title ?: source
+            if (!sub.isNullOrBlank()) {
+                Text(
+                    text = sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Serif,
+                    color = Color.White.copy(alpha = 0.68f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -388,14 +399,12 @@ private fun ActionCircle(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val container = when {
-        primary -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f)
+    val container = if (primary) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f)
     }
-    val content = when {
-        primary -> MaterialTheme.colorScheme.onPrimary
-        else -> Color.White
-    }
+    val content = if (primary) MaterialTheme.colorScheme.onPrimary else Color.White
     val size = if (primary) 70.dp else 60.dp
     val iconSize = if (primary) 28.dp else 24.dp
     val alpha = if (enabled) 1f else 0.45f
@@ -436,6 +445,7 @@ private fun SheetContent(onPick: (WallpaperTarget) -> Unit) {
         Text(
             text = "设置壁纸",
             style = MaterialTheme.typography.titleLarge,
+            fontFamily = FontFamily.Serif,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = 26.dp, bottom = 6.dp),
         )
@@ -470,7 +480,7 @@ private fun SheetItem(
 ) {
     ListItem(
         headlineContent = {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Serif)
         },
         supportingContent = {
             Text(
