@@ -148,14 +148,14 @@ fun buildScheme(seed: Color, dark: Boolean): ColorScheme {
     val tertiaryChroma = (baseChroma * 0.72).coerceAtLeast(0.04)
     val tertiaryHue = (hue + 62.0) % 360.0
 
-    fun p(tone: Double) = paletteColor(hue, primaryChroma, tone)
-    fun s(tone: Double) = paletteColor(hue, secondaryChroma, tone)
-    fun t(tone: Double) = paletteColor(tertiaryHue, tertiaryChroma, tone)
-    fun n(tone: Double) = paletteColor(hue, neutralChroma, tone)
-    fun nv(tone: Double) = paletteColor(hue, neutralVariantChroma, tone)
+    fun p(tone: Int) = paletteColor(hue, primaryChroma, tone.toDouble())
+    fun s(tone: Int) = paletteColor(hue, secondaryChroma, tone.toDouble())
+    fun t(tone: Int) = paletteColor(tertiaryHue, tertiaryChroma, tone.toDouble())
+    fun n(tone: Int) = paletteColor(hue, neutralChroma, tone.toDouble())
+    fun nv(tone: Int) = paletteColor(hue, neutralVariantChroma, tone.toDouble())
 
     // 错误色固定用红色系，不跟着图片走（安全相关的颜色必须稳定）
-    fun e(tone: Double) = paletteColor(25.0, 0.19, tone)
+    fun e(tone: Int) = paletteColor(25.0, 0.19, tone.toDouble())
 
     return if (dark) {
         darkColorScheme(
