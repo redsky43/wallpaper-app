@@ -3,6 +3,7 @@
 package com.shuaixin.wallpaper
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.compose.animation.animateColorAsState
@@ -132,6 +133,7 @@ private fun WallpaperScreen(
             WallpaperCard(
                 item = state.current,
                 previousUrl = state.previousUrl,
+                previousRaster = state.previousRaster,
                 transitionId = state.transitionId,
                 corner = cardCorner,
                 seed = animatedSeed,
@@ -237,6 +239,7 @@ private fun Backdrop(url: String?, seed: Color) {
 private fun WallpaperCard(
     item: WallpaperItem?,
     previousUrl: String?,
+    previousRaster: Bitmap?,
     transitionId: Int,
     corner: Dp,
     seed: Color,
@@ -261,6 +264,7 @@ private fun WallpaperCard(
         WipeLayers(
             currentUrl = item?.imageUrl,
             previousUrl = previousUrl,
+            previousRaster = previousRaster,
             trigger = transitionId,
             modifier = Modifier.fillMaxSize(),
         )

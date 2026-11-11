@@ -1,8 +1,10 @@
 package com.shuaixin.wallpaper
 
+import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -10,10 +12,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 
@@ -22,15 +30,15 @@ import coil.request.ImageRequest
  *
  * 新画面像一块布从下往上推，把旧画面顶出去，交界线是中间高两边低的弧。
  *
- * 两层都用原图 URL，不用缩略图 —— 这样交界线扫过时，
- * 上下两半的画质是一致的，不会出现「旧图突然变糊」。
- *
- * 旧图始终铺满在底层，任何一帧都不会露出空白。
+ * 底层优先用 ViewModel 提前准备好的位图 —— 位图已经在内存里，
+ * 切过去是零延迟的，不会出现「旧图重新解码时空白一帧」的闪。
+ * 位图还没准备好时才退回用 URL 取。
  */
 @Composable
 fun WipeLayers(
     currentUrl: String?,
     previousUrl: String?,
+    previousRaster: Bitmap?,
     trigger: Int,
     modifier: Modifier = Modifier,
 ) {
@@ -54,8 +62,13 @@ fun WipeLayers(
     }
 
     Box(modifier) {
-        // 底层：上一张，和顶层同样的尺寸参数，保证画质一致
-        if (previousUrl != null) {
+        // 底层：上一张
+        if (previousRaster != null) {
+            val image = remember(previousRaster) { previousRaster.asImageBitmap() }
+            Canvas(Modifier.fillMaxSize()) {
+                drawCropped(image)
+            }
+        } else if (previousUrl != null) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(previousUrl)
@@ -117,4 +130,21 @@ fun WipeLayers(
             )
         }
     }
+}
+
+/** 按 Crop 方式把位图铺满整个区域，和 ContentScale.Crop 表现一致 */
+private fun DrawScope.drawCropped(image: ImageBitmap) {
+    val scale = maxOf(size.width / image.width, size.height / image.height)
+    val width = image.width * scale
+    val height = image.height * scale
+
+    drawImage(
+        image = image,
+        dstOffset = IntOffset(
+            ((size.width - width) / 2f).toInt(),
+            ((size.height - height) / 2f).toInt(),
+        ),
+        dstSize = IntSize(width.toInt(), height.toInt()),
+        filterQuality = FilterQuality.Medium,
+    )
 }

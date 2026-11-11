@@ -24,8 +24,9 @@ import kotlinx.coroutines.launch
 
 data class UiState(
     val current: WallpaperItem? = null,
-    /** 上一张的 URL，划像时垫在下面用 —— 用 URL 而不是位图，画质才和原图一致 */
     val previousUrl: String? = null,
+    /** 上一张的位图，划像底层用它，切换瞬间是零延迟的，不会闪 */
+    val previousRaster: Bitmap? = null,
     val seed: Color = Color(0xFF6E6A72),
     val loading: Boolean = true,
     val busy: Boolean = false,
@@ -43,6 +44,13 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
 
     private val queue = ArrayDeque<WallpaperItem>()
     private val seedCache = mutableMapOf<String, Color>()
+
+    /**
+     * 每张图准备一份 1200px 宽的位图，专门给划像的底层用。
+     * 用位图而不是 URL，是因为 URL 得重新解码，中间那几十毫秒就是「闪一下」的来源。
+     * 只保留最近 3 张，靠 GC 回收。
+     */
+    private val rasterCache = LinkedHashMap<String, Bitmap>()
 
     private var filling = false
     private var seedJob: Job? = null
@@ -72,6 +80,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             preloadImage(first)
+            ensureRaster(first)
             refill()
         }
     }
@@ -88,6 +97,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                 it.copy(
                     current = nextItem,
                     previousUrl = oldItem?.imageUrl,
+                    previousRaster = oldItem?.let { item -> rasterCache[item.imageUrl] },
                     seed = cached ?: it.seed,
                     loading = false,
                     error = null,
@@ -95,6 +105,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             if (cached == null) refreshSeed(nextItem)
+            viewModelScope.launch { ensureRaster(nextItem) }
         } else {
             viewModelScope.launch {
                 _state.update { it.copy(loading = true, error = null) }
@@ -108,12 +119,14 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(
                         current = item,
                         previousUrl = oldItem?.imageUrl,
+                        previousRaster = oldItem?.let { old -> rasterCache[old.imageUrl] },
                         seed = seed ?: it.seed,
                         loading = false,
                         transitionId = it.transitionId + 1,
                     )
                 }
                 preloadImage(item)
+                ensureRaster(item)
             }
         }
 
@@ -140,8 +153,8 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 把图下到缓存里，尺寸必须和卡片显示时一致，
-     * 否则内存缓存命不中，换图那一瞬间还得重新解码。
+     * 预加载到磁盘缓存，尺寸和卡片显示时一致，
+     * 否则内存缓存命不中，换图还得重新解码。
      */
     private fun preloadImage(item: WallpaperItem) {
         viewModelScope.launch {
@@ -155,7 +168,25 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 只为了取主色，用小图就够了，取完立刻回收 */
+    /** 划像底层用的位图 */
+    private suspend fun ensureRaster(item: WallpaperItem): Bitmap? {
+        rasterCache[item.imageUrl]?.let { return it }
+        val bitmap = loadRaster(item.imageUrl, 1200) ?: return null
+        rasterCache[item.imageUrl] = bitmap
+        trimRasterCache()
+        return bitmap
+    }
+
+    private fun trimRasterCache() {
+        while (rasterCache.size > 3) {
+            val state = _state.value
+            val protected = setOfNotNull(state.current?.imageUrl, state.previousUrl)
+            val oldest = rasterCache.keys.firstOrNull { it !in protected } ?: break
+            rasterCache.remove(oldest)
+        }
+    }
+
+    /** 只为了取主色，小图足够，取完立刻回收 */
     private suspend fun ensureSeed(item: WallpaperItem): Color? {
         seedCache[item.imageUrl]?.let { return it }
         val bitmap = loadRaster(item.imageUrl, 256) ?: return null
