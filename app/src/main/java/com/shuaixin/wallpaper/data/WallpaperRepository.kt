@@ -77,15 +77,35 @@ class WallpaperRepository {
 
                 val id = post.optInt("id")
 
+                // yande.re 没有画师字段，但 source 里通常留着原始出处
+                val rawSource = post.optString("source")
+                val platform = when {
+                    rawSource.contains("pixiv", ignoreCase = true) -> "Pixiv"
+                    rawSource.contains("twitter", ignoreCase = true) ||
+                        rawSource.contains("x.com", ignoreCase = true) -> "Twitter"
+                    rawSource.contains("nicovideo", ignoreCase = true) -> "NicoNico"
+                    rawSource.contains("seiga", ignoreCase = true) -> "NicoNico静画"
+                    else -> "yande.re"
+                }
+
+                // 标签里有作品名、角色名，比赤裸裸的编号有信息量
+                val tagLine = post.optString("tags")
+                    .split(" ")
+                    .asSequence()
+                    .filter { it.isNotBlank() && !it.contains(":") }
+                    .take(3)
+                    .joinToString("  ·  ") { it.replace('_', ' ') }
+                    .takeIf { it.isNotBlank() }
+
                 return WallpaperItem(
                     imageUrl = imageUrl,
                     artistName = null,
-                    artistUrl = null,
+                    artistUrl = if (rawSource.startsWith("http")) rawSource else null,
                     sourceUrl = if (id > 0) "https://yande.re/post/show/$id" else null,
-                    title = if (id > 0) "yande.re #$id" else null,
+                    title = tagLine,
                     width = post.optInt("sample_width", width),
                     height = post.optInt("sample_height", height),
-                    source = "yande.re",
+                    source = platform,
                 )
             }
             return null

@@ -15,17 +15,22 @@ import com.shuaixin.wallpaper.data.WallpaperRepository
 import com.shuaixin.wallpaper.util.ImageSaver
 import com.shuaixin.wallpaper.util.WallpaperSetter
 import com.shuaixin.wallpaper.util.WallpaperTarget
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 data class UiState(
     val current: WallpaperItem? = null,
     val previousUrl: String? = null,
-    /** 上一张的位图，划像底层用它，切换瞬间是零延迟的，不会闪 */
+    /** 上一张的位图，划像底层用它，切换瞬间零延迟 */
     val previousRaster: Bitmap? = null,
     val seed: Color = Color(0xFF6E6A72),
     val loading: Boolean = true,
@@ -43,13 +48,7 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val queue = ArrayDeque<WallpaperItem>()
-    private val seedCache = mutableMapOf<String, Color>()
-
-    /**
-     * 每张图准备一份 1200px 宽的位图，专门给划像的底层用。
-     * 用位图而不是 URL，是因为 URL 得重新解码，中间那几十毫秒就是「闪一下」的来源。
-     * 只保留最近 3 张，靠 GC 回收。
-     */
+    private val seedCache = ConcurrentHashMap<String, Color>()
     private val rasterCache = LinkedHashMap<String, Bitmap>()
 
     private var filling = false
@@ -79,7 +78,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                     transitionId = it.transitionId + 1,
                 )
             }
-            preloadImage(first)
             ensureRaster(first)
             refill()
         }
@@ -125,7 +123,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
                         transitionId = it.transitionId + 1,
                     )
                 }
-                preloadImage(item)
                 ensureRaster(item)
             }
         }
@@ -133,18 +130,45 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         refill()
     }
 
+    /**
+     * 后台备货。
+     *
+     * 三个要点：
+     *   1. 元数据并发抓（三个请求同时发，不用排队）
+     *   2. 图片并发下载（三张同时下，总耗时约等于最慢的那张）
+     *   3. 先把候选塞进队列再下载 —— 这样即使图还没下完，
+     *      用户点「换一张」也能立刻拿到 URL 开始显示，而不是干等
+     */
     private fun refill() {
         if (filling) return
         filling = true
+
         viewModelScope.launch {
             try {
-                while (queue.size < TARGET_QUEUE) {
-                    val item = runCatching { repository.random() }.getOrNull() ?: break
-                    if (queue.any { it.imageUrl == item.imageUrl }) continue
-                    if (item.imageUrl == _state.value.current?.imageUrl) continue
-                    queue.addLast(item)
-                    ensureSeed(item)
-                    preloadImage(item)
+                val currentUrl = _state.value.current?.imageUrl
+
+                val candidates = coroutineScope {
+                    List(TARGET_QUEUE) {
+                        async { runCatching { repository.random() }.getOrNull() }
+                    }.awaitAll()
+                }
+                    .filterNotNull()
+                    .distinctBy { it.imageUrl }
+                    .filter { it.imageUrl != currentUrl }
+                    .filter { item -> queue.none { it.imageUrl == item.imageUrl } }
+
+                if (candidates.isEmpty()) return@launch
+
+                queue.addAll(candidates)
+
+                coroutineScope {
+                    candidates.forEach { item ->
+                        launch(Dispatchers.IO) {
+                            downloadToCache(item)
+                            ensureSeed(item)
+                            ensureRaster(item)
+                        }
+                    }
                 }
             } finally {
                 filling = false
@@ -152,23 +176,17 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * 预加载到磁盘缓存，尺寸和卡片显示时一致，
-     * 否则内存缓存命不中，换图还得重新解码。
-     */
-    private fun preloadImage(item: WallpaperItem) {
-        viewModelScope.launch {
-            runCatching {
-                val request = ImageRequest.Builder(app)
-                    .data(item.imageUrl)
-                    .size(1200)
-                    .build()
-                app.imageLoader.enqueue(request)
-            }
+    /** 把图下到磁盘缓存，尺寸和显示时一致 */
+    private suspend fun downloadToCache(item: WallpaperItem) {
+        runCatching {
+            val request = ImageRequest.Builder(app)
+                .data(item.imageUrl)
+                .size(1200)
+                .build()
+            app.imageLoader.execute(request)
         }
     }
 
-    /** 划像底层用的位图 */
     private suspend fun ensureRaster(item: WallpaperItem): Bitmap? {
         rasterCache[item.imageUrl]?.let { return it }
         val bitmap = loadRaster(item.imageUrl, 1200) ?: return null
@@ -186,7 +204,6 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 只为了取主色，小图足够，取完立刻回收 */
     private suspend fun ensureSeed(item: WallpaperItem): Color? {
         seedCache[item.imageUrl]?.let { return it }
         val bitmap = loadRaster(item.imageUrl, 256) ?: return null

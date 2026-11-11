@@ -314,8 +314,9 @@ private fun ArtistRow(
         Spacer(Modifier.width(13.dp))
 
         Column(Modifier.weight(1f)) {
+            // 有画师名就显示画师，没有就退而显示出处（Pixiv / yande.re）
             Text(
-                text = name ?: "佚名",
+                text = name ?: source ?: "出处未知",
                 style = MaterialTheme.typography.titleMedium,
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.SemiBold,
@@ -324,10 +325,10 @@ private fun ArtistRow(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            val sub = title ?: source
-            if (!sub.isNullOrBlank()) {
+            // 标签里带着角色名、作品名，比编号有信息量
+            if (!title.isNullOrBlank()) {
                 Text(
-                    text = sub,
+                    text = title,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Serif,
                     color = Color.White.copy(alpha = 0.68f),
