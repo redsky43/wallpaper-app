@@ -70,7 +70,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.shuaixin.wallpaper.data.WallpaperItem
 import com.shuaixin.wallpaper.ui.theme.WallpaperTheme
@@ -190,7 +190,7 @@ private fun Backdrop(url: String?, seed: Color) {
     // 而不是黑底 —— 这样换图过程中不会出现整屏暗一下的感觉
     Box(Modifier.fillMaxSize().background(seed)) {
         if (url != null) {
-            SubcomposeAsyncImage(
+            AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(url)
                     .size(200)
@@ -200,9 +200,7 @@ private fun Backdrop(url: String?, seed: Color) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(72.dp),
-                loading = {},
-                error = {},
+                    .blur(38.dp),
             )
         }
 

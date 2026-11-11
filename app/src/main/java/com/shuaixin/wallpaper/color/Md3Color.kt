@@ -110,13 +110,22 @@ private fun toneToOklabL(tone: Double): Double = ((tone + 16.0) / 116.0).coerceI
  */
 private fun paletteColor(hue: Double, chroma: Double, tone: Double): Color {
     val l = toneToOklabL(tone)
-    var c = chroma.coerceIn(0.0, 0.37)
-    var guard = 0
-    while (c > 0.0 && !inGamut(l, c, hue) && guard < 400) {
-        c -= 0.0008
-        guard++
+    val maxChroma = chroma.coerceIn(0.0, 0.37)
+
+    if (inGamut(l, maxChroma, hue)) {
+        return oklchToColor(Oklch(l, maxChroma, hue))
     }
-    return oklchToColor(Oklch(l, c.coerceAtLeast(0.0), hue))
+
+    // 二分查找能显示的彩度上限。
+    // 原来是一格一格往下减，最坏要试 400 次；改成二分之后最多 14 次。
+    // 配色动画每帧都要重算整张色板，这一处直接决定了拖动时会不会掉帧。
+    var low = 0.0
+    var high = maxChroma
+    repeat(14) {
+        val mid = (low + high) * 0.5
+        if (inGamut(l, mid, hue)) low = mid else high = mid
+    }
+    return oklchToColor(Oklch(l, low, hue))
 }
 
 /**

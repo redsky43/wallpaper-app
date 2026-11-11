@@ -22,7 +22,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 
 /**
@@ -69,7 +69,7 @@ fun WipeLayers(
                 drawCropped(image)
             }
         } else if (previousUrl != null) {
-            SubcomposeAsyncImage(
+            AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(previousUrl)
                     .size(1200)
@@ -78,14 +78,12 @@ fun WipeLayers(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                loading = {},
-                error = {},
             )
         }
 
         // 顶层：当前这张，按弧形路径裁剪
         if (currentUrl != null) {
-            SubcomposeAsyncImage(
+            AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(currentUrl)
                     .size(1200)
@@ -125,8 +123,6 @@ fun WipeLayers(
                             this@drawWithContent.drawContent()
                         }
                     },
-                loading = {},
-                error = {},
             )
         }
     }

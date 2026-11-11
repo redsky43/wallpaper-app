@@ -161,12 +161,14 @@ class WallpaperViewModel(app: Application) : AndroidViewModel(app) {
 
                 queue.addAll(candidates)
 
+                // 这里只下到缓存、算好主色，不再顺手解码大位图——
+                // 三张 1200px 位图同时解码会把 CPU 占满，表现出来就是界面一顿一顿的。
+                // 位图留到真正显示这张图的时候再准备。
                 coroutineScope {
                     candidates.forEach { item ->
                         launch(Dispatchers.IO) {
                             downloadToCache(item)
                             ensureSeed(item)
-                            ensureRaster(item)
                         }
                     }
                 }
