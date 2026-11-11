@@ -190,12 +190,16 @@ private fun Backdrop(url: String?, seed: Color) {
     // 而不是黑底 —— 这样换图过程中不会出现整屏暗一下的感觉
     Box(Modifier.fillMaxSize().background(seed)) {
         if (url != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            // 同样要 remember，避免每帧重建请求导致背景图反复重载
+            val request = remember(url) {
+                ImageRequest.Builder(context)
                     .data(url)
                     .size(200)
                     .crossfade(900)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

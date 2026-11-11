@@ -69,12 +69,18 @@ fun WipeLayers(
                 drawCropped(image)
             }
         } else if (previousUrl != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            // 请求对象必须 remember，否则每次重组都新建一个，
+            // Coil 会当成新请求重新加载 —— 颜色渐变的每一帧都在重载图片，
+            // 这就是卡顿的真正来源
+            val request = remember(previousUrl) {
+                ImageRequest.Builder(context)
                     .data(previousUrl)
                     .size(1200)
                     .crossfade(false)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -83,12 +89,15 @@ fun WipeLayers(
 
         // 顶层：当前这张，按弧形路径裁剪
         if (currentUrl != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            val request = remember(currentUrl) {
+                ImageRequest.Builder(context)
                     .data(currentUrl)
                     .size(1200)
                     .crossfade(false)
-                    .build(),
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
